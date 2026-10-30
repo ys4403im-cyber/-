@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>利益計算シミュレーター</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f8fafc; color: #334155; margin: 0; padding: 20px; }
+        .container { max-w: 800px; margin: 0 auto; background: white; border-radius: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; overflow: hidden; }
+        .header { background: #0f172a; color: white; padding: 20px; }
+        .header h1 { margin: 0; font-size: 20px; }
+        .content { padding: 24px; }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 30px; }
+        .input-group { display: flex; flex-direction: column; }
+        .input-group label { font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+        .input-group input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+        .card { background: #f8fafc; padding: 16px; border-radius: 12px; border: 1px solid #f1f5f9; }
+        .card .label { display: block; font-size: 12px; color: #64748b; }
+        .card .value { display: block; font-size: 20px; font-weight: bold; margin-top: 4px; }
+        .card.highlight { background: #ecfdf5; border-color: #d1fae5; color: #065f46; }
+        .card.accent { background: #e0e7ff; border-color: #e0e7ff; color: #3730a3; }
+        .btn-container { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn { background: white; border: 1px solid #cbd5e1; padding: 6px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: bold; color: #475569; }
+        .btn:hover { background: #f1f5f9; }
+        .btn.full-btn { width: 100%; }
+        .btn.accent-btn { background: #0f172a; color: white; border: none; }
+        .btn.sell-btn { background: #065f46; color: white; border: none; }
+        hr { border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>利益計算シミュレーター</h1>
+        </div>
+        <div class="content">
+            <!-- 基本入力 -->
+            <div class="grid-2">
+                <div class="input-group"><label>買値 (円)</label><input type="number" id="buyPrice" value="800"></div>
+                <div class="input-group"><label>パック代 (円)</label><input type="number" id="packCost" value="100"></div>
+            </div>
+            <hr>
+            <!-- 価格・利率分析 -->
+            <div class="grid-4">
+                <div class="card"><span class="label">税込8％</span><span id="taxIncluded" class="value">-</span></div>
+                <div class="card"><span class="label">パック込価格</span><span id="taxWithPack" class="value">-</span></div>
+                
+                <!-- 利率カード -->
+                <div class="card">
+                    <span class="label">利率（4かけ倍率）</span>
+                    <span id="rateFour" class="value">-</span>
+                    <div class="btn-container">
+                        <div class="btn-row">
+                            <button class="btn" onclick="adjustRate(-0.05)">- 5%</button>
+                            <button class="btn" onclick="adjustRate(0.05)">+ 5%</button>
+                        </div>
+                        <button class="btn accent-btn" onclick="resetRate()">標準(1.4倍)にリセット</button>
+                    </div>
+                </div>
+
+                <!-- 売値カード（10円単位上等を削除、50円単位上等を横いっぱいに配置） -->
+                <div class="card highlight">
+                    <span class="label">決定売値 (10円単位切上)</span><span id="currentSellPrice" class="value">-</span>
+                    <div class="btn-container">
+                        <button class="btn full-btn" onclick="roundPrice(50)">50円単位上等</button>
+                        <div class="btn-row">
+                            <button class="btn" onclick="adjustPrice(-10)">- 10円</button>
+                            <button class="btn" onclick="adjustPrice(10)">+ 10円</button>
+                        </div>
+                        <button class="btn sell-btn" onclick="resetPrice()">自動切上の値に戻す</button>
+                    </div>
+                </div>
+            </div>
+            <!-- シミュレーション結果 -->
+            <div class="grid-4">
+                <div class="card"><span class="label">売値 - パック込</span><span id="sellMinusPack" class="value">-</span></div>
+                <div class="card"><span class="label">100万 / パック数</span><span id="packsPerMillion" class="value">-</span></div>
+                <div class="card"><span class="label">100万時利益</span><span id="profitPerMillion" class="value">-</span></div>
+                <div class="card accent"><span class="label">膳野菜手数料20％</span><span id="feeTwenty" class="value">-</span></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        let currentSellPrice = 0;
+        let autoCalculatedPrice = 0;
+        let currentRateMultiplier = 1.4; 
+
+        function calculate(isInitial = false) {
+            const buyPrice = parseFloat(document.getElementById('buyPrice').value) || 0;
+            const packCost = parseFloat(document.getElementById('packCost').value) || 0;
+            
+            const taxIncluded = buyPrice * 1.08;                    
+            const taxWithPack = taxIncluded + packCost;              
+            
+            const rateFourValue = taxWithPack * currentRateMultiplier;
+            
+            // 計算された利率の数値を、最初から「10円単位で切り上げ」て自動売値にする
+            autoCalculatedPrice = Math.ceil(rateFourValue / 10) * 10;                     
+            
+            if (isInitial) {
+                currentSellPrice = autoCalculatedPrice;
+            }
+            
+            const sellMinusPack = currentSellPrice - taxWithPack;             
+            const packsPerMillion = Math.ceil(1000000 / currentSellPrice);            
+            const profitPerMillion = packsPerMillion * sellMinusPack; 
+            const feeTwenty = profitPerMillion * 0.8;               
+            
+            // 画面反映
+            document.getElementById('taxIncluded').innerText = taxIncluded.toLocaleString('ja-JP');
+            document.getElementById('taxWithPack').innerText = taxWithPack.toLocaleString('ja-JP');
+            
+            const ratePercent = Math.round(currentRateMultiplier * 100);
+            document.getElementById('rateFour').innerText = rateFourValue.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ` (${ratePercent}%)`;
+            
+            document.getElementById('currentSellPrice').innerText = currentSellPrice.toLocaleString('ja-JP') + " 円";
+            document.getElementById('sellMinusPack').innerText = Math.round(sellMinusPack).toLocaleString('ja-JP');
+            document.getElementById('packsPerMillion').innerText = packsPerMillion.toLocaleString('ja-JP'); 
+            document.getElementById('profitPerMillion').innerText = Math.round(profitPerMillion).toLocaleString('ja-JP') + " 円";
+            document.getElementById('feeTwenty').innerText = Math.round(feeTwenty).toLocaleString('ja-JP') + " 円";
+        }
+
+        function adjustRate(amount) {
+            currentRateMultiplier = Math.round((currentRateMultiplier + amount) * 100) / 100;
+            if (currentRateMultiplier < 0) currentRateMultiplier = 0;
+            calculate(true); 
+        }
+
+        function resetRate() {
+            currentRateMultiplier = 1.4;
+            calculate(true);
+        }
+
+        // 指定の単位に切り上げる関数（現在値より必ず高い次の単位へ）
+        function roundPrice(unit) {
+            currentSellPrice = Math.ceil((currentSellPrice + 1) / unit) * unit;
+            calculate(false);
+        }
+
+        function adjustPrice(amount) { currentSellPrice += amount; if (currentSellPrice < 0) currentSellPrice = 0; calculate(false); }
+        function resetPrice() { currentSellPrice = autoCalculatedPrice; calculate(false); }
+        
+        document.getElementById('buyPrice').addEventListener('input', () => calculate(true));
+        document.getElementById('packCost').addEventListener('input', () => calculate(true));
+        window.addEventListener('DOMContentLoaded', () => calculate(true));
+    </script>
+</body>
+</html>
